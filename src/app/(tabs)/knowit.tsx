@@ -1,19 +1,12 @@
 import { useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { Bot, HelpCircle, Send, Ticket, User } from 'lucide-react-native';
 
 import { SourceCard, type Source } from '@/components/SourceCard';
 import { createSession, sendMessage, type ApiReference } from '@/api/chatbotApi';
+import { useKeyboardSpacing } from '@/lib/useKeyboardSpacing';
 
 type Mode = 'none' | 'question' | 'request';
 
@@ -47,6 +40,8 @@ export default function KnowItScreen() {
   const [loading, setLoading] = useState(false);
   const sessionId = useRef<number | null>(null);
   const scrollRef = useRef<ScrollView>(null);
+  const tabBarHeight = useBottomTabBarHeight();
+  const keyboardSpacing = useKeyboardSpacing(tabBarHeight);
 
   const scrollToEnd = () =>
     requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
@@ -181,10 +176,7 @@ export default function KnowItScreen() {
   // 채팅 화면
   return (
     <SafeAreaView className="flex-1 bg-white" edges={['top']}>
-      <KeyboardAvoidingView
-        className="flex-1"
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}>
+      <View className="flex-1" style={{ paddingBottom: keyboardSpacing }}>
         <View className="flex-row items-center justify-between border-b border-stone-100 px-5 py-3">
           <Text className="text-lg font-bold text-ink">
             KnowIt · {mode === 'question' ? '질문' : '요청'}
@@ -211,6 +203,7 @@ export default function KnowItScreen() {
             placeholder={mode === 'question' ? '궁금한 점을 입력하세요' : '요청 내용을 입력하세요'}
             placeholderTextColor="#a8a29e"
             multiline
+            onFocus={scrollToEnd}
             className="max-h-28 flex-1 rounded-2xl border border-stone-200 bg-stone-50 px-4 py-2.5 text-[15px] text-ink"
           />
           <Pressable
@@ -222,7 +215,7 @@ export default function KnowItScreen() {
             <Send color="#fff" size={20} />
           </Pressable>
         </View>
-      </KeyboardAvoidingView>
+      </View>
     </SafeAreaView>
   );
 }

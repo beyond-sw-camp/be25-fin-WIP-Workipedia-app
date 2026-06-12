@@ -1,20 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  FlatList,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { FlatList, Pressable, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { Client } from '@stomp/stompjs';
 import { Send, X } from 'lucide-react-native';
 
 import { getActiveMessages } from '@/api/chatApi';
 import { wsOrigin } from '@/constants/config';
 import { useAuthStore } from '@/stores/authStore';
+import { useKeyboardSpacing } from '@/lib/useKeyboardSpacing';
 import type { FlashChatMessageResponse } from '@/types/chat';
 
 interface ReplyRef {
@@ -40,6 +34,8 @@ export default function ChatScreen() {
   const userId = useAuthStore((s) => s.userId);
   const nickname = useAuthStore((s) => s.nickname);
   const token = useAuthStore((s) => s.accessToken);
+  const tabBarHeight = useBottomTabBarHeight();
+  const keyboardSpacing = useKeyboardSpacing(tabBarHeight);
 
   const [msgs, setMsgs] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState('');
@@ -210,10 +206,7 @@ export default function ChatScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-white" edges={['top']}>
-      <KeyboardAvoidingView
-        className="flex-1"
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}>
+      <View className="flex-1" style={{ paddingBottom: keyboardSpacing }}>
         <View className="border-b border-stone-100 px-5 py-3">
           <Text className="text-lg font-bold text-ink">Flash Chat</Text>
           <Text className="text-xs text-muted">메시지는 10분 후 사라져요</Text>
@@ -260,6 +253,7 @@ export default function ChatScreen() {
             placeholder="메시지를 입력하세요"
             placeholderTextColor="#a8a29e"
             multiline
+            onFocus={scrollToEnd}
             className="max-h-28 flex-1 rounded-2xl border border-stone-200 bg-stone-50 px-4 py-2.5 text-[15px] text-ink"
           />
           <Pressable
@@ -271,7 +265,7 @@ export default function ChatScreen() {
             <Send color="#fff" size={20} />
           </Pressable>
         </View>
-      </KeyboardAvoidingView>
+      </View>
     </SafeAreaView>
   );
 }
