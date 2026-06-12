@@ -1,12 +1,22 @@
 import { useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Image,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
-import { Bot, HelpCircle, Send, Ticket, User } from 'lucide-react-native';
+import { Bot, HelpCircle, ImagePlus, Send, Ticket, User, X } from 'lucide-react-native';
 
 import { SourceCard, type Source } from '@/components/SourceCard';
 import { createSession, sendMessage, type ApiReference } from '@/api/chatbotApi';
 import { useKeyboardSpacing } from '@/lib/useKeyboardSpacing';
+import { pickFromCamera, pickFromLibrary } from '@/lib/pickImage';
 
 type Mode = 'none' | 'question' | 'request';
 
@@ -16,6 +26,7 @@ interface Msg {
   text?: string;
   sources?: Source[];
   hint?: string;
+  imageUris?: string[];
 }
 
 let seq = 0;
@@ -38,6 +49,7 @@ export default function KnowItScreen() {
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [attachedImages, setAttachedImages] = useState<string[]>([]);
   const sessionId = useRef<number | null>(null);
   const scrollRef = useRef<ScrollView>(null);
   const tabBarHeight = useBottomTabBarHeight();
@@ -65,18 +77,90 @@ export default function KnowItScreen() {
   function changeMode() {
     setMode('none');
     setMsgs([]);
+    setAttachedImages([]);
     sessionId.current = null;
+  }
+
+  // 사진 첨부: 카메라/갤러리 선택 → 미리보기에 누적, 전송 시 메시지와 함께 보냄
+  function openAttach() {
+    Alert.alert('사진 첨부', '사진을 어떻게 추가할까요?', [
+      {
+        text: '카메라로 촬영',
+        onPress: async () => {
+          const uris = await pickFromCamera();
+          if (uris.length) setAttachedImages((prev) => [...prev, ...uris]);
+        },
+      },
+      {
+        text: '갤러리에서 선택',
+        onPress: async () => {
+          const uris = await pickFromLibrary();
+          if (uris.length) setAttachedImages((prev) => [...prev, ...uris]);
+        },
+      },
+      { text: '취소', style: 'cancel' },
+    ]);
   }
 
   async function send() {
     const q = input.trim();
-    if (!q || loading) return;
+    const images = attachedImages;
+    if ((!q && images.length === 0) || loading) return;
     setInput('');
+    setAttachedImages([]);
+
+    // 사용자 말풍선 (텍스트/사진)
     setMsgs((prev) => [
       ...prev,
-      { id: uid(), kind: 'user', text: q },
-      { id: uid(), kind: 'loading' },
+      { id: uid(), kind: 'user', text: q || undefined, imageUris: images.length ? images : undefined },
     ]);
+
+    // 요청 모드: 사진 첨부 가능. BE 업로드 엔드포인트가 없어 사진은 로컬 표시 + 안내.
+    // (TODO: BE 멀티파트 업로드 준비되면 images 를 함께 전송)
+    if (mode === 'request') {
+      setLoading(true);
+      if (q) setMsgs((prev) => [...prev, { id: uid(), kind: 'loading' }]);
+      scrollToEnd();
+      try {
+        let draftTicket: { title: string; content: string } | undefined;
+        if (q) {
+          if (sessionId.current == null) {
+            const s = await createSession();
+            sessionId.current = s.data.data.sessionId;
+          }
+          const res = await sendMessage(sessionId.current, q);
+          draftTicket = res.data.data.draftTicket;
+        }
+        setMsgs((prev) => {
+          const next = prev.filter((m) => m.kind !== 'loading');
+          if (draftTicket) {
+            next.push({
+              id: uid(),
+              kind: 'answer',
+              text: `요청 내용을 정리했어요.\n\n제목: ${draftTicket.title}\n내용: ${draftTicket.content}`,
+            });
+          } else if (q) {
+            next.push({ id: uid(), kind: 'answer', text: '요청을 접수했어요.' });
+          }
+          const imgNote = images.length ? `사진 ${images.length}장이 첨부되었어요. ` : '';
+          next.push({
+            id: uid(),
+            kind: 'actions',
+            hint: `${imgNote}티켓 발행${images.length ? '·사진 전송' : ''}은 현재 백엔드 준비 중이라 곧 지원될 예정이에요.`,
+          });
+          return next;
+        });
+        scrollToEnd();
+      } catch {
+        setMsgs((prev) => prev.filter((m) => m.kind !== 'loading'));
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    // 질문 모드: 텍스트만
+    setMsgs((prev) => [...prev, { id: uid(), kind: 'loading' }]);
     setLoading(true);
     scrollToEnd();
 
@@ -86,28 +170,11 @@ export default function KnowItScreen() {
         sessionId.current = s.data.data.sessionId;
       }
       const res = await sendMessage(sessionId.current, q);
-      const { answer, references, nextAction, draftTicket } = res.data.data;
+      const { answer, references, nextAction } = res.data.data;
 
       setMsgs((prev) => {
         const cleaned = prev.filter((m) => m.kind !== 'loading');
         const next: Msg[] = [...cleaned];
-
-        if (mode === 'request') {
-          // 티켓 발행 채널은 v1 비범위 → 정리된 초안을 안내 메시지로 표시
-          next.push({
-            id: uid(),
-            kind: 'answer',
-            text: draftTicket
-              ? `요청 내용을 정리했어요.\n\n제목: ${draftTicket.title}\n내용: ${draftTicket.content}`
-              : answer,
-          });
-          next.push({
-            id: uid(),
-            kind: 'actions',
-            hint: '티켓 발행은 현재 웹에서 가능합니다. 모바일에서는 곧 지원될 예정이에요.',
-          });
-          return next;
-        }
 
         next.push({ id: uid(), kind: 'answer', text: answer });
         if (nextAction === 'SHOW_SOURCES' && references.length) {
@@ -196,24 +263,54 @@ export default function KnowItScreen() {
           ))}
         </ScrollView>
 
-        <View className="flex-row items-end gap-2 border-t border-stone-100 px-4 py-2.5">
-          <TextInput
-            value={input}
-            onChangeText={setInput}
-            placeholder={mode === 'question' ? '궁금한 점을 입력하세요' : '요청 내용을 입력하세요'}
-            placeholderTextColor="#a8a29e"
-            multiline
-            onFocus={scrollToEnd}
-            className="max-h-28 flex-1 rounded-2xl border border-stone-200 bg-stone-50 px-4 py-2.5 text-[15px] text-ink"
-          />
-          <Pressable
-            onPress={send}
-            disabled={loading || !input.trim()}
-            className={`h-11 w-11 items-center justify-center rounded-full bg-[#208AEF] ${
-              loading || !input.trim() ? 'opacity-40' : ''
-            }`}>
-            <Send color="#fff" size={20} />
-          </Pressable>
+        <View className="border-t border-stone-100">
+          {/* 첨부 사진 미리보기 (여러 장, 전송 시 메시지와 함께 보냄) */}
+          {attachedImages.length > 0 ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              className="px-4 pt-2.5"
+              contentContainerClassName="gap-2"
+              keyboardShouldPersistTaps="handled">
+              {attachedImages.map((uri, i) => (
+                <View key={`${uri}-${i}`}>
+                  <Image source={{ uri }} className="h-16 w-16 rounded-lg" />
+                  <Pressable
+                    onPress={() => setAttachedImages((prev) => prev.filter((_, idx) => idx !== i))}
+                    className="absolute -right-1.5 -top-1.5 h-5 w-5 items-center justify-center rounded-full bg-stone-700">
+                    <X size={12} color="#fff" />
+                  </Pressable>
+                </View>
+              ))}
+            </ScrollView>
+          ) : null}
+
+          <View className="flex-row items-end gap-2 px-4 py-2.5">
+            {mode === 'request' ? (
+              <Pressable
+                onPress={openAttach}
+                className="h-11 w-11 items-center justify-center rounded-full bg-stone-100 active:opacity-70">
+                <ImagePlus color="#57534e" size={20} />
+              </Pressable>
+            ) : null}
+            <TextInput
+              value={input}
+              onChangeText={setInput}
+              placeholder={mode === 'question' ? '궁금한 점을 입력하세요' : '요청 내용을 입력하세요'}
+              placeholderTextColor="#a8a29e"
+              multiline
+              onFocus={scrollToEnd}
+              className="max-h-28 flex-1 rounded-2xl border border-stone-200 bg-stone-50 px-4 py-2.5 text-[15px] text-ink"
+            />
+            <Pressable
+              onPress={send}
+              disabled={loading || (!input.trim() && attachedImages.length === 0)}
+              className={`h-11 w-11 items-center justify-center rounded-full bg-[#208AEF] ${
+                loading || (!input.trim() && attachedImages.length === 0) ? 'opacity-40' : ''
+              }`}>
+              <Send color="#fff" size={20} />
+            </Pressable>
+          </View>
         </View>
       </View>
     </SafeAreaView>
@@ -224,8 +321,26 @@ function MessageBubble({ msg }: { msg: Msg }) {
   if (msg.kind === 'user') {
     return (
       <View className="flex-row items-end justify-end gap-2">
-        <View className="max-w-[80%] rounded-2xl rounded-br-md bg-[#208AEF] px-4 py-2.5">
-          <Text className="text-[15px] text-white">{msg.text}</Text>
+        <View className="max-w-[80%] gap-1.5">
+          {msg.imageUris?.length ? (
+            <View className="flex-row flex-wrap justify-end gap-1.5">
+              {msg.imageUris.map((uri, i) => (
+                <Image
+                  key={`${uri}-${i}`}
+                  source={{ uri }}
+                  resizeMode="cover"
+                  className={
+                    msg.imageUris!.length === 1 ? 'h-44 w-44 rounded-2xl' : 'h-24 w-24 rounded-xl'
+                  }
+                />
+              ))}
+            </View>
+          ) : null}
+          {msg.text ? (
+            <View className="self-end rounded-2xl rounded-br-md bg-[#208AEF] px-4 py-2.5">
+              <Text className="text-[15px] text-white">{msg.text}</Text>
+            </View>
+          ) : null}
         </View>
         <View className="mb-0.5 rounded-full bg-stone-200 p-1.5">
           <User size={16} color="#57534e" />
