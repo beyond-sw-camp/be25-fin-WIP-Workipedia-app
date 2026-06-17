@@ -10,11 +10,12 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { isAxiosError } from 'axios';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { Bot, HelpCircle, ImagePlus, Send, Ticket, User, X } from 'lucide-react-native';
 
 import { SourceCard, type Source } from '@/components/SourceCard';
-import { createSession, sendMessage, type ApiReference } from '@/api/chatbotApi';
+import { createSession, sendMessage, parseReferences, type SourceItem } from '@/api/chatbotApi';
 import { useKeyboardSpacing } from '@/lib/useKeyboardSpacing';
 import { pickFromCamera, pickFromLibrary } from '@/lib/pickImage';
 
@@ -32,15 +33,33 @@ interface Msg {
 let seq = 0;
 const uid = () => `m${seq++}`;
 
-function mapReferences(refs: ApiReference[]): Source[] {
+// 실패 원인을 화면에 드러낸다 (조용히 사라지지 않도록). 타임아웃/네트워크/HTTP 상태 구분.
+function errorText(err: unknown): string {
+  console.warn('[KnowIt] chatbot request failed:', err);
+  if (isAxiosError(err)) {
+    if (err.code === 'ECONNABORTED') {
+      return '답변 생성이 시간 내에 끝나지 않았어요. 잠시 후 다시 시도해 주세요.';
+    }
+    const status = err.response?.status;
+    if (status != null) {
+      return `답변을 가져오지 못했어요. (오류 ${status}) 잠시 후 다시 시도해 주세요.`;
+    }
+    return '서버에 연결하지 못했어요. 네트워크 상태를 확인해 주세요.';
+  }
+  return '답변을 가져오는 중 문제가 발생했어요. 잠시 후 다시 시도해 주세요.';
+}
+
+function mapReferences(refs: SourceItem[]): Source[] {
   const config: Record<string, { label: string; cls: Source['cls'] }> = {
     MANUAL: { label: '매뉴얼', cls: 'green' },
+    KNOWLEDGE_DATA: { label: '지식 데이터', cls: 'green' },
     TICKET: { label: '티켓 답변', cls: 'blue' },
+    WORKI: { label: '워키 답변', cls: 'blue' },
     CHAT: { label: '채팅 답변', cls: 'gray' },
   };
   return refs.map((r) => {
-    const cfg = config[r.type] ?? { label: r.type, cls: 'gray' as const };
-    return { type: cfg.label, cls: cfg.cls, meta: r.title, link: '문서에서 보기', url: r.url };
+    const cfg = config[r.source_type] ?? { label: r.source_type, cls: 'gray' as const };
+    return { type: cfg.label, cls: cfg.cls, meta: r.title, link: '문서에서 보기', url: r.link ?? undefined };
   });
 }
 
@@ -122,23 +141,19 @@ export default function KnowItScreen() {
       if (q) setMsgs((prev) => [...prev, { id: uid(), kind: 'loading' }]);
       scrollToEnd();
       try {
-        let draftTicket: { title: string; content: string } | undefined;
+        let answer: string | undefined;
         if (q) {
           if (sessionId.current == null) {
             const s = await createSession();
-            sessionId.current = s.data.data.sessionId;
+            sessionId.current = s.data.sessionId;
           }
           const res = await sendMessage(sessionId.current, q);
-          draftTicket = res.data.data.draftTicket;
+          answer = res.data.content;
         }
         setMsgs((prev) => {
           const next = prev.filter((m) => m.kind !== 'loading');
-          if (draftTicket) {
-            next.push({
-              id: uid(),
-              kind: 'answer',
-              text: `요청 내용을 정리했어요.\n\n제목: ${draftTicket.title}\n내용: ${draftTicket.content}`,
-            });
+          if (answer) {
+            next.push({ id: uid(), kind: 'answer', text: answer });
           } else if (q) {
             next.push({ id: uid(), kind: 'answer', text: '요청을 접수했어요.' });
           }
@@ -151,8 +166,12 @@ export default function KnowItScreen() {
           return next;
         });
         scrollToEnd();
-      } catch {
-        setMsgs((prev) => prev.filter((m) => m.kind !== 'loading'));
+      } catch (err) {
+        setMsgs((prev) => [
+          ...prev.filter((m) => m.kind !== 'loading'),
+          { id: uid(), kind: 'answer', text: errorText(err) },
+        ]);
+        scrollToEnd();
       } finally {
         setLoading(false);
       }
@@ -167,16 +186,17 @@ export default function KnowItScreen() {
     try {
       if (sessionId.current == null) {
         const s = await createSession();
-        sessionId.current = s.data.data.sessionId;
+        sessionId.current = s.data.sessionId;
       }
       const res = await sendMessage(sessionId.current, q);
-      const { answer, references, nextAction } = res.data.data;
+      const { content, referencesJson, nextAction } = res.data;
+      const references = parseReferences(referencesJson);
 
       setMsgs((prev) => {
         const cleaned = prev.filter((m) => m.kind !== 'loading');
         const next: Msg[] = [...cleaned];
 
-        next.push({ id: uid(), kind: 'answer', text: answer });
+        next.push({ id: uid(), kind: 'answer', text: content });
         if (nextAction === 'SHOW_SOURCES' && references.length) {
           next.push({ id: uid(), kind: 'sources', sources: mapReferences(references) });
         }
@@ -196,8 +216,12 @@ export default function KnowItScreen() {
         return next;
       });
       scrollToEnd();
-    } catch {
-      setMsgs((prev) => prev.filter((m) => m.kind !== 'loading'));
+    } catch (err) {
+      setMsgs((prev) => [
+        ...prev.filter((m) => m.kind !== 'loading'),
+        { id: uid(), kind: 'answer', text: errorText(err) },
+      ]);
+      scrollToEnd();
     } finally {
       setLoading(false);
     }
