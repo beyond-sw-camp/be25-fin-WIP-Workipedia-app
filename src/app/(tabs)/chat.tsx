@@ -95,10 +95,23 @@ export default function ChatScreen() {
     })();
 
     const client = new Client({
-      brokerURL: `${wsOrigin()}/ws/flash-chat`,
+      // raw WebSocket(STOMP) 은 SockJS 가 아니므로 BE 의 native 엔드포인트에 붙어야 한다.
+      // /ws/flash-chat 은 .withSockJS() 전용(웹 브라우저용)이라 raw 연결 시 핸드셰이크가 실패한다.
+      brokerURL: `${wsOrigin()}/ws/flash-chat-native`,
       reconnectDelay: 5000,
       beforeConnect: () => {
         client.connectHeaders = { Authorization: `Bearer ${useAuthStore.getState().accessToken ?? ''}` };
+      },
+      // 실패를 조용히 묻지 않도록 로깅한다 (연결 진단용).
+      debug: (msg) => console.log('[FlashChat][STOMP]', msg),
+      onStompError: (frame) => {
+        console.warn('[FlashChat] STOMP error:', frame.headers['message'], frame.body);
+      },
+      onWebSocketError: (event) => {
+        console.warn('[FlashChat] WebSocket error:', event);
+      },
+      onWebSocketClose: (event) => {
+        console.warn('[FlashChat] WebSocket closed:', event?.code, event?.reason);
       },
       onConnect: () => {
         client.subscribe('/topic/flash-chat', (frame) => {
