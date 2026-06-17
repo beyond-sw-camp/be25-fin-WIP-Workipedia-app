@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { FlatList, Pressable, Text, TextInput, View } from 'react-native';
+import { FlatList, Pressable, RefreshControl, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { Client } from '@stomp/stompjs';
@@ -41,6 +41,7 @@ export default function ChatScreen() {
   const [input, setInput] = useState('');
   const [replyTo, setReplyTo] = useState<ChatMsg | null>(null);
   const [now, setNow] = useState(Date.now());
+  const [refreshing, setRefreshing] = useState(false);
 
   const listRef = useRef<FlatList<ChatMsg>>(null);
   const stompRef = useRef<Client | null>(null);
@@ -71,6 +72,21 @@ export default function ChatScreen() {
   const scrollToEnd = () =>
     requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
 
+  // 활성(미만료) 메시지를 REST 로 다시 받아와 목록을 동기화한다.
+  // 최초 진입·STOMP 재연결·당겨서 새로고침에서 공통으로 사용한다.
+  const loadActiveMessages = useCallback(async () => {
+    try {
+      const res = await getActiveMessages();
+      const list: ChatMsg[] = res.data.messages.map((raw) =>
+        mapIncoming(raw, res.data.messages, userId),
+      );
+      setMsgs(list);
+      list.forEach(scheduleDelete);
+    } catch {
+      // 로드 실패해도 실시간 연결은 유지
+    }
+  }, [userId, scheduleDelete]);
+
   // 상대시간("방금")을 실제 시간으로 전환하기 위한 30초 틱
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 30_000);
@@ -79,20 +95,9 @@ export default function ChatScreen() {
 
   // 초기 로드 + STOMP 연결
   useEffect(() => {
-    let active = true;
     const localTimeouts = timeouts.current;
 
-    (async () => {
-      try {
-        const res = await getActiveMessages();
-        if (!active) return;
-        const list: ChatMsg[] = res.data.messages.map((raw) => mapIncoming(raw, res.data.messages, userId));
-        setMsgs(list);
-        list.forEach(scheduleDelete);
-      } catch {
-        // 초기 로드 실패해도 실시간 연결은 유지
-      }
-    })();
+    void loadActiveMessages();
 
     const client = new Client({
       // raw WebSocket(STOMP) 은 SockJS 가 아니므로 BE 의 native 엔드포인트에 붙어야 한다.
@@ -114,6 +119,8 @@ export default function ChatScreen() {
         console.warn('[FlashChat] WebSocket closed:', event?.code, event?.reason);
       },
       onConnect: () => {
+        // (재)연결될 때마다 히스토리를 다시 받아 그동안 놓친 메시지를 동기화한다.
+        void loadActiveMessages();
         client.subscribe('/topic/flash-chat', (frame) => {
           const raw = JSON.parse(frame.body);
 
@@ -167,7 +174,6 @@ export default function ChatScreen() {
     stompRef.current = client;
 
     return () => {
-      active = false;
       localTimeouts.forEach((h) => clearTimeout(h));
       localTimeouts.clear();
       client.deactivate();
@@ -233,6 +239,16 @@ export default function ChatScreen() {
           contentContainerClassName="px-4 py-3 gap-2"
           keyboardShouldPersistTaps="handled"
           onContentSizeChange={scrollToEnd}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={async () => {
+                setRefreshing(true);
+                await loadActiveMessages();
+                setRefreshing(false);
+              }}
+            />
+          }
           ListEmptyComponent={
             <View className="mt-20 items-center">
               <Text className="text-sm text-stone-400">아직 메시지가 없어요. 먼저 말을 걸어보세요!</Text>
