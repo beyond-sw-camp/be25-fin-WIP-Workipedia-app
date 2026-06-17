@@ -21,7 +21,6 @@ import {
   sendMessage,
   parseReferences,
   type SourceItem,
-  type NextAction,
 } from '@/api/chatbotApi';
 import { createQuestion } from '@/api/workiApi';
 import { createTicket } from '@/api/ticketApi';
@@ -37,8 +36,7 @@ interface Msg {
   sources?: Source[];
   hint?: string;
   imageUris?: string[];
-  // actions 버블에서 노출할 후속 동작과, 폼 초안에 쓸 사용자 질문 텍스트
-  action?: Extract<NextAction, 'CREATE_WORKI' | 'CREATE_TICKET'>;
+  // actions 버블: userText 가 있으면 폼 초안에 쓰고 워키/티켓 버튼을 노출한다.
   userText?: string;
 }
 
@@ -242,13 +240,7 @@ export default function KnowItScreen() {
             ? `사진 ${images.length}장은 현재 업로드 준비 중이라 텍스트 내용만 전달돼요.`
             : undefined;
           if (q) {
-            next.push({
-              id: uid(),
-              kind: 'actions',
-              action: 'CREATE_TICKET',
-              userText: q,
-              hint: imgNote,
-            });
+            next.push({ id: uid(), kind: 'actions', userText: q, hint: imgNote });
           } else if (imgNote) {
             next.push({ id: uid(), kind: 'actions', hint: imgNote });
           }
@@ -291,11 +283,8 @@ export default function KnowItScreen() {
         if (references.length) {
           next.push({ id: uid(), kind: 'sources', sources: mapReferences(references) });
         }
-        if (nextAction === 'CREATE_WORKI') {
-          next.push({ id: uid(), kind: 'actions', action: 'CREATE_WORKI', userText: q });
-        } else if (nextAction === 'CREATE_TICKET') {
-          next.push({ id: uid(), kind: 'actions', action: 'CREATE_TICKET', userText: q });
-        }
+        // 워키 질문 등록 / 티켓 발송 두 버튼을 항상 함께 노출한다 (웹과 동일).
+        next.push({ id: uid(), kind: 'actions', userText: q });
         return next;
       });
       scrollToEnd();
@@ -600,21 +589,22 @@ function MessageBubble({
             <Text className="text-[13px] leading-5 text-amber-700">{msg.hint}</Text>
           </View>
         ) : null}
-        {msg.action === 'CREATE_WORKI' ? (
-          <Pressable
-            onPress={onCreateWorki}
-            className="flex-row items-center gap-2 self-start rounded-xl border border-[#208AEF] bg-[#e8f1ff] px-4 py-2.5 active:opacity-70">
-            <FileText size={16} color="#208AEF" />
-            <Text className="text-sm font-semibold text-[#208AEF]">워키 질문으로 등록</Text>
-          </Pressable>
-        ) : null}
-        {msg.action === 'CREATE_TICKET' ? (
-          <Pressable
-            onPress={onCreateTicket}
-            className="flex-row items-center gap-2 self-start rounded-xl border border-[#f97316] bg-[#fff0e8] px-4 py-2.5 active:opacity-70">
-            <Ticket size={16} color="#f97316" />
-            <Text className="text-sm font-semibold text-[#f97316]">티켓 발송하기</Text>
-          </Pressable>
+        {/* 워키 질문 등록 / 티켓 발송 두 버튼을 항상 함께 노출한다 (웹과 동일). */}
+        {msg.userText != null ? (
+          <View className="flex-row flex-wrap gap-2">
+            <Pressable
+              onPress={onCreateWorki}
+              className="flex-row items-center gap-2 self-start rounded-xl border border-[#208AEF] bg-[#e8f1ff] px-4 py-2.5 active:opacity-70">
+              <FileText size={16} color="#208AEF" />
+              <Text className="text-sm font-semibold text-[#208AEF]">워키에 질문 등록</Text>
+            </Pressable>
+            <Pressable
+              onPress={onCreateTicket}
+              className="flex-row items-center gap-2 self-start rounded-xl border border-[#f97316] bg-[#fff0e8] px-4 py-2.5 active:opacity-70">
+              <Ticket size={16} color="#f97316" />
+              <Text className="text-sm font-semibold text-[#f97316]">담당 부서에 문의</Text>
+            </Pressable>
+          </View>
         ) : null}
       </View>
     );
