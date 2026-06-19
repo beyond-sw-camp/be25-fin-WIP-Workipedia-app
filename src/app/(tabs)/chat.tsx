@@ -42,6 +42,7 @@ export default function ChatScreen() {
   const [replyTo, setReplyTo] = useState<ChatMsg | null>(null);
   const [now, setNow] = useState(Date.now());
   const [refreshing, setRefreshing] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
 
   const listRef = useRef<FlatList<ChatMsg>>(null);
   const stompRef = useRef<Client | null>(null);
@@ -97,6 +98,9 @@ export default function ChatScreen() {
   useEffect(() => {
     const localTimeouts = timeouts.current;
 
+    // 실제 접속 대상 호스트를 로그로 남겨 IP 설정 오류(연결 실패)를 빠르게 식별한다.
+    console.log('[FlashChat] STOMP 대상:', `${wsOrigin()}/ws/flash-chat-native`);
+
     void loadActiveMessages();
 
     const client = new Client({
@@ -104,6 +108,11 @@ export default function ChatScreen() {
       // /ws/flash-chat 은 .withSockJS() 전용(웹 브라우저용)이라 raw 연결 시 핸드셰이크가 실패한다.
       brokerURL: `${wsOrigin()}/ws/flash-chat-native`,
       reconnectDelay: 5000,
+      // React Native 의 WebSocket 은 STOMP 프레임 끝 NULL(\0) 처리가 표준과 달라
+      // 서버의 CONNECTED 프레임을 완성된 프레임으로 인식하지 못하고 CONNECT 직후 멈춘다.
+      // (동일 토큰·서버라도 Node 의 ws 에선 정상.) 아래 두 플래그가 RN 표준 우회책.
+      forceBinaryWSFrames: true,
+      appendMissingNULLonIncoming: true,
       beforeConnect: () => {
         client.connectHeaders = { Authorization: `Bearer ${useAuthStore.getState().accessToken ?? ''}` };
       },
@@ -121,6 +130,25 @@ export default function ChatScreen() {
       onConnect: () => {
         // (재)연결될 때마다 히스토리를 다시 받아 그동안 놓친 메시지를 동기화한다.
         void loadActiveMessages();
+
+        // 서버가 전송을 거부하면(@SendToUser('/queue/errors')) 이 큐로만 사유가 온다.
+        // 구독하지 않으면 거부가 조용히 묻혀 "보냈는데 아무 일도 안 일어나는" 것처럼 보인다.
+        client.subscribe('/user/queue/errors', (frame) => {
+          let status = '';
+          let message = frame.body;
+          try {
+            const err = JSON.parse(frame.body);
+            status = err.status ?? '';
+            message = err.message ?? frame.body;
+          } catch {
+            // body 가 JSON 이 아니면 원문 그대로 사용
+          }
+          console.warn('[FlashChat] 전송 거부:', status, message);
+          // 서버에 저장되지 않은 optimistic 임시 메시지를 화면에서 되돌린다.
+          setMsgs((prev) => prev.filter((m) => !m.id.startsWith('__tmp_')));
+          setSendError(message);
+        });
+
         client.subscribe('/topic/flash-chat', (frame) => {
           const raw = JSON.parse(frame.body);
 
@@ -186,8 +214,18 @@ export default function ChatScreen() {
     const content = input.trim();
     if (!content) return;
     const replyRef = replyTo;
+
+    // 연결이 없으면 publish 가 조용히 실패해 메시지가 사라진 것처럼 보인다.
+    // 입력을 유지한 채 사유를 노출하고 전송하지 않는다.
+    const client = stompRef.current;
+    if (!client || !client.connected) {
+      setSendError('서버에 연결되어 있지 않아요. 연결 상태를 확인하는 중입니다…');
+      return;
+    }
+
     setInput('');
     setReplyTo(null);
+    setSendError(null);
 
     const tempId = `__tmp_${Date.now()}`;
     const optimistic: ChatMsg = {
@@ -205,12 +243,15 @@ export default function ChatScreen() {
     scrollToEnd();
 
     try {
-      stompRef.current?.publish({
+      client.publish({
         destination: '/app/flash-chat/send',
         body: JSON.stringify({ content, replyToId: replyRef?.id ?? null }),
       });
-    } catch {
-      // 연결 전 전송은 무시 (optimistic 은 이미 표시됨)
+    } catch (e) {
+      // publish 실패: optimistic 을 되돌리고 사유를 노출한다.
+      removeMsg(tempId);
+      setSendError('메시지 전송에 실패했어요. 다시 시도해 주세요.');
+      console.warn('[FlashChat] publish 실패:', e);
     }
   }
 
@@ -260,6 +301,15 @@ export default function ChatScreen() {
             </Pressable>
           )}
         />
+
+        {sendError ? (
+          <Pressable
+            onPress={() => setSendError(null)}
+            className="flex-row items-center gap-2 border-t border-red-100 bg-red-50 px-4 py-2 active:opacity-70">
+            <Text className="flex-1 text-xs text-red-600">{sendError}</Text>
+            <X size={16} color="#dc2626" />
+          </Pressable>
+        ) : null}
 
         {replyTo ? (
           <View className="flex-row items-center gap-2 border-t border-stone-100 bg-stone-50 px-4 py-2">
