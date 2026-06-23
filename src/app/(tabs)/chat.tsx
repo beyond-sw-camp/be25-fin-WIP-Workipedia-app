@@ -28,6 +28,8 @@ interface ChatMsg {
   replyTo?: ReplyRef | null;
 }
 
+// 메시지 만료 시간. 웹과 동일하게 서버 expiresAt 을 신뢰하지 않고
+// createdAt + TTL 로 클라이언트에서 만료를 계산한다(웹 기본값 600초와 일치).
 const TTL_MS = 10 * 60 * 1000;
 
 export default function ChatScreen() {
@@ -167,7 +169,8 @@ export default function ChatScreen() {
               name: raw.nickname,
               content: raw.content,
               createdAt: raw.createdAt,
-              expiresAt: raw.expiresAt,
+              // 웹과 동일하게 서버 expiresAt 을 무시하고 createdAt + TTL 로 클라이언트에서 계산한다.
+              expiresAt: new Date(new Date(raw.createdAt).getTime() + TTL_MS).toISOString(),
               replyTo: raw.replyToId
                 ? { id: raw.replyToId, name: original?.name ?? null, content: original?.content ?? null }
                 : null,
@@ -362,7 +365,8 @@ function mapIncoming(
     name: raw.nickname,
     content: raw.content,
     createdAt: raw.createdAt,
-    expiresAt: raw.expiresAt,
+    // 웹과 동일하게 서버 expiresAt 을 무시하고 createdAt + TTL 로 클라이언트에서 계산한다.
+    expiresAt: new Date(new Date(raw.createdAt).getTime() + TTL_MS).toISOString(),
     replyTo: raw.replyToId
       ? { id: raw.replyToId, name: original?.nickname ?? null, content: original?.content ?? null }
       : null,
