@@ -12,11 +12,18 @@ const http = axios.create({
   timeout: 10000,
 });
 
+if (__DEV__) {
+  console.log('[API] baseURL:', API_BASE_URL);
+}
+
 // 요청 인터셉터: Bearer 주입 (토큰은 store 에서 동기 조회)
 http.interceptors.request.use((config) => {
   const token = getAccessToken();
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
+  }
+  if (__DEV__) {
+    console.log('[API] request:', config.method?.toUpperCase(), `${config.baseURL ?? ''}${config.url ?? ''}`);
   }
   return config;
 });
@@ -44,6 +51,16 @@ http.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
     const originalRequest = error.config as RetriableConfig | undefined;
+
+    if (__DEV__) {
+      console.warn('[API] error:', {
+        method: originalRequest?.method?.toUpperCase(),
+        url: `${originalRequest?.baseURL ?? ''}${originalRequest?.url ?? ''}`,
+        status: error.response?.status,
+        data: error.response?.data,
+        message: error.message,
+      });
+    }
 
     if (error.response?.status !== 401 || !originalRequest || originalRequest._retry) {
       return Promise.reject(error);
