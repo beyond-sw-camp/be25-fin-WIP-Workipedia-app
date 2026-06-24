@@ -59,7 +59,5 @@ export function createTicketWithFiles(data: CreateTicketRequest, imageUris: stri
       type: imageType(uri),
     } as unknown as Blob);
   });
-  return http.post<TicketResponse>('/tickets', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  });
+  return http.post<TicketResponse>('/tickets', formData);
 }
