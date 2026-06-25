@@ -3,8 +3,7 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "dependencies": {
-    "@expo/ui": "~0.2.0-beta.9",
-    "@react-navigation/bottom-tabs": "^7.18.0",
+    "@react-navigation/bottom-tabs": "^7.18.3",
     "@stomp/stompjs": "^7.3.0",
     "axios": "^1.17.0",
     "babel-preset-expo": "~54.0.10",
@@ -49,6 +48,13 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint"
+  },
+  "expo": {
+    "install": {
+      "exclude": [
+        "@react-navigation/bottom-tabs"
+      ]
+    }
   },
   "private": true
 }
