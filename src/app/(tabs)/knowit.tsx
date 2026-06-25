@@ -3,14 +3,16 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Keyboard,
   Modal,
   Pressable,
   ScrollView,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { isAxiosError } from 'axios';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { Bot, FileText, HelpCircle, ImagePlus, Send, Ticket, User, X } from 'lucide-react-native';
@@ -23,8 +25,8 @@ import {
   type SourceItem,
 } from '@/api/chatbotApi';
 import { createQuestion } from '@/api/workiApi';
-import { createTicket, createTicketWithFiles } from '@/api/ticketApi';
-import { useKeyboardSpacing } from '@/lib/useKeyboardSpacing';
+import { createTicket } from '@/api/ticketApi';
+import { useKeyboardHeight, useKeyboardSpacing } from '@/lib/useKeyboardSpacing';
 import { pickFromCamera, pickFromLibrary } from '@/lib/pickImage';
 
 type Mode = 'none' | 'question' | 'request';
@@ -460,10 +462,25 @@ function CreateFormModal({
   onSubmit: () => void;
 }) {
   const isWorki = kind === 'worki';
+  const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
+  const keyboardHeight = useKeyboardHeight();
+  const keyboardUp = keyboardHeight > 0;
+  // 카드를 화면 상단 기준 고정 위치(absolute top)에 둔다. 위치 값(top)이 키보드와
+  // 전혀 무관하므로, 키보드가 나타나거나 사라져도 카드가 움직이지 않는다.
+  const cardTop = insets.top + 24;
+  const maxCardHeight = Math.round(windowHeight * 0.6);
   return (
-    <Modal visible={kind !== null} transparent animationType="slide" onRequestClose={onCancel}>
-      <Pressable className="flex-1 justify-end bg-black/40" onPress={onCancel}>
-        <Pressable className="rounded-t-3xl bg-white px-5 pb-8 pt-5" onPress={(e) => e.stopPropagation()}>
+    <Modal visible={kind !== null} transparent animationType="fade" onRequestClose={onCancel}>
+      {/* 바깥(어두운 영역) 탭: 키보드가 떠 있으면 키보드만 닫고(작성 내용 유지),
+          키보드가 없을 때만 모달을 닫는다. */}
+      <Pressable
+        className="flex-1 bg-black/40"
+        onPress={() => (keyboardUp ? Keyboard.dismiss() : onCancel())}>
+        <Pressable
+          className="absolute left-5 right-5 rounded-3xl bg-white px-5 pb-6 pt-5"
+          style={{ top: cardTop, maxHeight: maxCardHeight }}
+          onPress={(e) => e.stopPropagation()}>
           <View className="mb-4 flex-row items-center gap-2">
             <View className={`rounded-xl p-2 ${isWorki ? 'bg-[#e8f1ff]' : 'bg-[#fff0e8]'}`}>
               {isWorki ? (
