@@ -93,16 +93,18 @@ export default function KnowItScreen() {
   const [formKind, setFormKind] = useState<FormKind | null>(null);
   const [formTitle, setFormTitle] = useState('');
   const [formContent, setFormContent] = useState('');
+  const [formImageUris, setFormImageUris] = useState<string[]>([]);
   const [formError, setFormError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   const scrollToEnd = () =>
     requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
 
-  function openForm(kind: FormKind, draftContent?: string) {
+  function openForm(kind: FormKind, draftContent?: string, imageUris: string[] = []) {
     setFormKind(kind);
     setFormTitle('');
     setFormContent(draftContent ?? '');
+    setFormImageUris(kind === 'ticket' ? imageUris : []);
     setFormError('');
   }
 
@@ -110,6 +112,7 @@ export default function KnowItScreen() {
     setFormKind(null);
     setFormTitle('');
     setFormContent('');
+    setFormImageUris([]);
     setFormError('');
   }
 
@@ -135,11 +138,15 @@ export default function KnowItScreen() {
         await createQuestion({ title, content, sourceChatbotMessageId });
         done = '워키 게시판에 질문을 등록했어요. (10P 적립)';
       } else {
-        const res = await createTicket({ title, content, sourceChatbotMessageId });
+        const payload = { title, content, sourceChatbotMessageId };
+        const res = formImageUris.length
+          ? await createTicketWithFiles(payload, formImageUris)
+          : await createTicket(payload);
         const dept = res.data.assignedDepartmentName;
+        const imageText = formImageUris.length ? `사진 ${formImageUris.length}장과 함께 ` : '';
         done = dept
-          ? `티켓을 발행했어요. 노잇이 ${dept} 부서로 전달했어요.`
-          : '티켓을 발행했어요. 담당자가 빠르게 처리해드릴게요.';
+          ? `티켓을 발행했어요. ${imageText}${dept} 부서로 전달했어요.`
+          : `티켓을 발행했어요.${formImageUris.length ? ` 사진 ${formImageUris.length}장도 함께 전달했어요.` : ''} 담당자가 빠르게 처리해드릴게요.`;
       }
       closeForm();
       setMsgs((prev) => [...prev, { id: uid(), kind: 'answer', text: done }]);
@@ -213,8 +220,7 @@ export default function KnowItScreen() {
       { id: uid(), kind: 'user', text: q || undefined, imageUris: images.length ? images : undefined },
     ]);
 
-    // 요청 모드: 사진 첨부 가능. BE 업로드 엔드포인트가 없어 사진은 로컬 표시 + 안내.
-    // (TODO: BE 멀티파트 업로드 준비되면 images 를 함께 전송)
+    // 요청 모드: 사진 첨부 가능. 액션 메시지에 사진 URI를 보관했다가 티켓 발송 시 multipart로 함께 전송한다.
     if (mode === 'request') {
       setLoading(true);
       if (q) setMsgs((prev) => [...prev, { id: uid(), kind: 'loading' }]);
@@ -237,14 +243,13 @@ export default function KnowItScreen() {
           } else if (q) {
             next.push({ id: uid(), kind: 'answer', text: '요청을 접수했어요.' });
           }
-          // 사진 업로드는 아직 BE 미준비라 텍스트만 전달됨을 안내한다.
           const imgNote = images.length
-            ? `사진 ${images.length}장은 현재 업로드 준비 중이라 텍스트 내용만 전달돼요.`
+            ? `사진 ${images.length}장도 티켓 발송 시 함께 전달돼요.`
             : undefined;
           if (q) {
-            next.push({ id: uid(), kind: 'actions', userText: q, hint: imgNote });
+            next.push({ id: uid(), kind: 'actions', userText: q, imageUris: images, hint: imgNote });
           } else if (imgNote) {
-            next.push({ id: uid(), kind: 'actions', hint: imgNote });
+            next.push({ id: uid(), kind: 'actions', imageUris: images, hint: imgNote });
           }
           return next;
         });
@@ -361,7 +366,7 @@ export default function KnowItScreen() {
               key={m.id}
               msg={m}
               onCreateWorki={() => openForm('worki', m.userText)}
-              onCreateTicket={() => openForm('ticket', m.userText)}
+              onCreateTicket={() => openForm('ticket', m.userText, m.imageUris ?? [])}
             />
           ))}
         </ScrollView>
@@ -422,6 +427,7 @@ export default function KnowItScreen() {
         title={formTitle}
         content={formContent}
         error={formError}
+        imageUris={formImageUris}
         submitting={submitting}
         onChangeTitle={setFormTitle}
         onChangeContent={setFormContent}
@@ -437,6 +443,7 @@ function CreateFormModal({
   title,
   content,
   error,
+  imageUris,
   submitting,
   onChangeTitle,
   onChangeContent,
@@ -447,6 +454,7 @@ function CreateFormModal({
   title: string;
   content: string;
   error: string;
+  imageUris: string[];
   submitting: boolean;
   onChangeTitle: (v: string) => void;
   onChangeContent: (v: string) => void;
@@ -507,6 +515,17 @@ function CreateFormModal({
           />
 
           {error ? <Text className="mb-2 text-sm text-red-500">{error}</Text> : null}
+
+          {!isWorki && imageUris.length ? (
+            <View className="mb-2 gap-2">
+              <Text className="text-sm font-medium text-stone-600">첨부 사진 {imageUris.length}장</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerClassName="gap-2">
+                {imageUris.map((uri, index) => (
+                  <Image key={`${uri}-${index}`} source={{ uri }} className="h-16 w-16 rounded-lg" />
+                ))}
+              </ScrollView>
+            </View>
+          ) : null}
 
           <View className="mt-2 flex-row gap-3">
             <Pressable
@@ -607,7 +626,7 @@ function MessageBubble({
           </View>
         ) : null}
         {/* 워키 질문 등록 / 티켓 발송 두 버튼을 항상 함께 노출한다 (웹과 동일). */}
-        {msg.userText != null ? (
+        {msg.userText != null || msg.imageUris?.length ? (
           <View className="flex-row flex-wrap gap-2">
             <Pressable
               onPress={onCreateWorki}
