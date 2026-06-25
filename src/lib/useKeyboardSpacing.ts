@@ -32,3 +32,24 @@ export function useKeyboardSpacing(tabBarHeight: number): number {
 
   return spacing;
 }
+
+// 키보드의 실제 높이(px)만 반환한다. 탭바·안전영역 보정을 하지 않으므로
+// 전체화면 Modal 처럼 화면 맨 아래에 붙어 있는 시트를 키보드 위로 띄울 때 쓴다.
+export function useKeyboardHeight(): number {
+  const [height, setHeight] = useState(0);
+
+  useEffect(() => {
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const show = Keyboard.addListener(showEvt, (e) => setHeight(e.endCoordinates.height));
+    const hide = Keyboard.addListener(hideEvt, () => setHeight(0));
+
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+
+  return height;
+}
