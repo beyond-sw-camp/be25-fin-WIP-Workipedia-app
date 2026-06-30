@@ -40,6 +40,7 @@ interface Msg {
   imageUris?: string[];
   // actions 버블: userText 가 있으면 폼 초안에 쓰고 워키/티켓 버튼을 노출한다.
   userText?: string;
+  hideWorki?: boolean;
 }
 
 type FormKind = 'worki' | 'ticket';
@@ -220,49 +221,21 @@ export default function KnowItScreen() {
       { id: uid(), kind: 'user', text: q || undefined, imageUris: images.length ? images : undefined },
     ]);
 
-    // 요청 모드: 사진 첨부 가능. 액션 메시지에 사진 URI를 보관했다가 티켓 발송 시 multipart로 함께 전송한다.
+    // 요청 모드: 챗봇 응답 없이 바로 액션 버튼 노출. 사진 첨부 시 안내 문구(hint)도 함께 표시.
     if (mode === 'request') {
-      setLoading(true);
-      if (q) setMsgs((prev) => [...prev, { id: uid(), kind: 'loading' }]);
-      scrollToEnd();
-      try {
-        let answer: string | undefined;
-        if (q) {
-          if (sessionId.current == null) {
-            const s = await createSession();
-            sessionId.current = s.data.sessionId;
-          }
-          const res = await sendMessage(sessionId.current, q);
-          answer = res.data.content;
-          lastMessageId.current = res.data.messageId;
-        }
-        setMsgs((prev) => {
-          const next = prev.filter((m) => m.kind !== 'loading');
-          if (answer) {
-            next.push({ id: uid(), kind: 'answer', text: answer });
-          } else if (q) {
-            next.push({ id: uid(), kind: 'answer', text: '요청을 접수했어요.' });
-          }
-          const imgNote = images.length
-            ? `사진 ${images.length}장도 티켓 발송 시 함께 전달돼요.`
-            : undefined;
-          if (q) {
-            next.push({ id: uid(), kind: 'actions', userText: q, imageUris: images, hint: imgNote });
-          } else if (imgNote) {
-            next.push({ id: uid(), kind: 'actions', imageUris: images, hint: imgNote });
-          }
-          return next;
-        });
-        scrollToEnd();
-      } catch (err) {
+      const imgNote = images.length
+        ? `사진 ${images.length}장도 티켓 발송 시 함께 전달돼요.`
+        : undefined;
+      if (q) {
         setMsgs((prev) => [
-          ...prev.filter((m) => m.kind !== 'loading'),
-          { id: uid(), kind: 'answer', text: errorText(err) },
+          ...prev,
+          { id: uid(), kind: 'answer', text: '담당 부서에 티켓으로 바로 접수할 수 있어요.' },
+          { id: uid(), kind: 'actions', userText: q, imageUris: images, hint: imgNote, hideWorki: true },
         ]);
-        scrollToEnd();
-      } finally {
-        setLoading(false);
+      } else if (imgNote) {
+        setMsgs((prev) => [...prev, { id: uid(), kind: 'actions', imageUris: images, hint: imgNote, hideWorki: true }]);
       }
+      scrollToEnd();
       return;
     }
 
@@ -625,15 +598,16 @@ function MessageBubble({
             <Text className="text-[13px] leading-5 text-amber-700">{msg.hint}</Text>
           </View>
         ) : null}
-        {/* 워키 질문 등록 / 티켓 발송 두 버튼을 항상 함께 노출한다 (웹과 동일). */}
         {msg.userText != null || msg.imageUris?.length ? (
           <View className="flex-row flex-wrap gap-2">
-            <Pressable
-              onPress={onCreateWorki}
-              className="flex-row items-center gap-2 self-start rounded-xl border border-[#208AEF] bg-[#e8f1ff] px-4 py-2.5 active:opacity-70">
-              <FileText size={16} color="#208AEF" />
-              <Text className="text-sm font-semibold text-[#208AEF]">워키에 질문 등록</Text>
-            </Pressable>
+            {!msg.hideWorki ? (
+              <Pressable
+                onPress={onCreateWorki}
+                className="flex-row items-center gap-2 self-start rounded-xl border border-[#208AEF] bg-[#e8f1ff] px-4 py-2.5 active:opacity-70">
+                <FileText size={16} color="#208AEF" />
+                <Text className="text-sm font-semibold text-[#208AEF]">워키에 질문 등록</Text>
+              </Pressable>
+            ) : null}
             <Pressable
               onPress={onCreateTicket}
               className="flex-row items-center gap-2 self-start rounded-xl border border-[#f97316] bg-[#fff0e8] px-4 py-2.5 active:opacity-70">
