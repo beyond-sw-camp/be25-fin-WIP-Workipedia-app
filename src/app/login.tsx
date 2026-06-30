@@ -12,11 +12,18 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Redirect, router } from 'expo-router';
 import type { AxiosError } from 'axios';
+import { ShieldCheck, User, Users } from 'lucide-react-native';
 
 import { Logo } from '@/components/Logo';
 import { login } from '@/api/authApi';
 import { useAuthStore } from '@/stores/authStore';
 import { saveRefreshToken } from '@/lib/secureStore';
+
+const QUICK_ACCOUNTS = [
+  { label: '일반 사용자', employeeId: 'SA003', password: 'Test1234', Icon: User },
+  { label: '팀 관리자', employeeId: 'SA002', password: 'Test1234', Icon: Users },
+  { label: '시스템 관리자', employeeId: 'SA001', password: 'Test1234', Icon: ShieldCheck },
+] as const;
 
 export default function LoginScreen() {
   const isLoggedIn = useAuthStore((s) => !!s.accessToken);
@@ -39,6 +46,32 @@ export default function LoginScreen() {
       next.password = '영문+숫자 조합 8자 이상이어야 합니다.';
     setErrors(next);
     return Object.keys(next).length === 0;
+  }
+
+  async function quickLogin(id: string, pw: string) {
+    if (loading) return;
+    setLoading(true);
+    setServerError('');
+    setErrors({});
+    try {
+      const res = await login({ employeeId: id, password: pw });
+      const { accessToken, userId, role, nickname, departmentName, status, refreshToken } = res.data;
+
+      if (status === 'INACTIVE') {
+        setServerError('비활성화된 계정입니다. 관리자에게 문의해주세요.');
+        return;
+      }
+
+      setAuth(accessToken, role, userId, nickname, departmentName);
+      if (refreshToken) await saveRefreshToken(refreshToken);
+
+      router.replace('/knowit');
+    } catch (e) {
+      const err = e as AxiosError<{ message: string }>;
+      setServerError(err.response?.data?.message ?? '로그인에 실패했습니다.');
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function handleLogin() {
@@ -140,6 +173,29 @@ export default function LoginScreen() {
               <Text className="mt-6 text-center text-xs text-stone-400">
                 회원가입·비밀번호 재설정은 웹에서 진행해주세요.
               </Text>
+
+              {/* Quick Login */}
+              <View className="mt-6 border-t border-stone-200 pt-5">
+                <Text className="mb-3 text-center text-[10px] font-bold uppercase tracking-widest text-stone-400">
+                  Quick Login
+                </Text>
+                <View className="flex-row gap-2">
+                  {QUICK_ACCOUNTS.map(({ label, employeeId: id, password: pw, Icon }) => (
+                    <Pressable
+                      key={id}
+                      onPress={() => quickLogin(id, pw)}
+                      disabled={loading}
+                      className={`flex-1 items-center gap-1.5 rounded-xl border border-stone-200 bg-white py-2.5 ${
+                        loading ? 'opacity-50' : ''
+                      }`}>
+                      <Icon size={15} color="#44403c" />
+                      <Text className="text-center text-[11px] font-medium text-stone-700">
+                        {label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
             </View>
           </ScrollView>
         </SafeAreaView>
