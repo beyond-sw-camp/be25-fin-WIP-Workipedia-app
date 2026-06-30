@@ -25,7 +25,7 @@ import {
   type SourceItem,
 } from '@/api/chatbotApi';
 import { createQuestion } from '@/api/workiApi';
-import { createTicket } from '@/api/ticketApi';
+import { createTicket, createTicketWithFiles } from '@/api/ticketApi';
 import { useKeyboardHeight, useKeyboardSpacing } from '@/lib/useKeyboardSpacing';
 import { pickFromCamera, pickFromLibrary } from '@/lib/pickImage';
 
