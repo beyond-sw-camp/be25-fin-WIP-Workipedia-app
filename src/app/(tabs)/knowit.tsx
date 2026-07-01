@@ -15,7 +15,18 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { isAxiosError } from 'axios';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
-import { Bot, FileText, HelpCircle, ImagePlus, Send, Ticket, User, X } from 'lucide-react-native';
+import {
+  Bot,
+  ChevronDown,
+  ChevronUp,
+  FileText,
+  HelpCircle,
+  ImagePlus,
+  Send,
+  Ticket,
+  User,
+  X,
+} from 'lucide-react-native';
 
 import { SourceCard, type Source } from '@/components/SourceCard';
 import {
@@ -28,6 +39,10 @@ import { createQuestion } from '@/api/workiApi';
 import { createTicket, createTicketWithFiles } from '@/api/ticketApi';
 import { useKeyboardHeight, useKeyboardSpacing } from '@/lib/useKeyboardSpacing';
 import { pickFromCamera, pickFromLibrary } from '@/lib/pickImage';
+import {
+  RECOMMENDED_CHATBOT_QUESTIONS,
+  type RecommendedChatbotQuestion,
+} from '@/constants/recommendedChatbotQuestions';
 
 type Mode = 'none' | 'question' | 'request';
 
@@ -47,6 +62,15 @@ type FormKind = 'worki' | 'ticket';
 
 let seq = 0;
 const uid = () => `m${seq++}`;
+
+// 질문 가이드에 노출할 추천 질문 개수 및 무작위 추출 (웹과 동일한 동작).
+const RECOMMENDED_QUESTION_LIMIT = 5;
+function pickRecommendedQuestions(
+  questions: RecommendedChatbotQuestion[],
+  limit = RECOMMENDED_QUESTION_LIMIT,
+): RecommendedChatbotQuestion[] {
+  return [...questions].sort(() => Math.random() - 0.5).slice(0, limit);
+}
 
 // 실패 원인을 화면에 드러낸다 (조용히 사라지지 않도록). 타임아웃/네트워크/HTTP 상태 구분.
 function errorText(err: unknown): string {
@@ -84,6 +108,11 @@ export default function KnowItScreen() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [attachedImages, setAttachedImages] = useState<string[]>([]);
+  // 질문 가이드(추천 질문 칩) 상태: 펼침 여부 + 이번 세션에 보여줄 무작위 5개
+  const [recommendedOpen, setRecommendedOpen] = useState(true);
+  const [recommendedQuestions] = useState(() =>
+    pickRecommendedQuestions(RECOMMENDED_CHATBOT_QUESTIONS.filter((q) => q.mode === 'question')),
+  );
   const sessionId = useRef<number | null>(null);
   const lastMessageId = useRef<number | null>(null);
   const scrollRef = useRef<ScrollView>(null);
@@ -208,9 +237,16 @@ export default function KnowItScreen() {
     ]);
   }
 
-  async function send() {
-    const q = input.trim();
-    const images = attachedImages;
+  // 추천 질문 칩을 누르면 그 텍스트로 바로 전송한다. RN 상태 업데이트는 비동기라
+  // setInput 후 send()를 부르면 반영 전 값이 읽히므로, send에 텍스트를 직접 넘긴다.
+  function sendRecommendedQuestion(question: RecommendedChatbotQuestion) {
+    if (loading) return;
+    void send(question.text);
+  }
+
+  async function send(overrideText?: string) {
+    const q = (overrideText ?? input).trim();
+    const images = overrideText != null ? [] : attachedImages;
     if ((!q && images.length === 0) || loading) return;
     setInput('');
     setAttachedImages([]);
@@ -345,6 +381,42 @@ export default function KnowItScreen() {
         </ScrollView>
 
         <View className="border-t border-stone-100">
+          {/* 질문 가이드: 질문 모드에서만, 접었다 펼 수 있는 추천 질문 칩 (웹과 동일) */}
+          {mode === 'question' && recommendedQuestions.length > 0 ? (
+            <View className="px-4 pt-2.5">
+              <Pressable
+                onPress={() => setRecommendedOpen((v) => !v)}
+                className="flex-row items-center gap-1 self-start active:opacity-60">
+                <Text className="text-xs font-semibold text-muted">질문 가이드</Text>
+                {recommendedOpen ? (
+                  <ChevronUp color="#a8a29e" size={14} />
+                ) : (
+                  <ChevronDown color="#a8a29e" size={14} />
+                )}
+              </Pressable>
+              {recommendedOpen ? (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  className="mt-2"
+                  contentContainerClassName="gap-2 pb-1"
+                  keyboardShouldPersistTaps="handled">
+                  {recommendedQuestions.map((q) => (
+                    <Pressable
+                      key={q.text}
+                      onPress={() => sendRecommendedQuestion(q)}
+                      disabled={loading}
+                      className={`rounded-full border border-stone-200 bg-stone-50 px-3.5 py-2 active:opacity-70 ${
+                        loading ? 'opacity-40' : ''
+                      }`}>
+                      <Text className="text-[13px] text-ink">{q.text}</Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              ) : null}
+            </View>
+          ) : null}
+
           {/* 첨부 사진 미리보기 (여러 장, 전송 시 메시지와 함께 보냄) */}
           {attachedImages.length > 0 ? (
             <ScrollView
@@ -384,7 +456,7 @@ export default function KnowItScreen() {
               className="max-h-28 flex-1 rounded-2xl border border-stone-200 bg-stone-50 px-4 py-2.5 text-[15px] text-ink"
             />
             <Pressable
-              onPress={send}
+              onPress={() => send()}
               disabled={loading || (!input.trim() && attachedImages.length === 0)}
               className={`h-11 w-11 items-center justify-center rounded-full bg-[#208AEF] ${
                 loading || (!input.trim() && attachedImages.length === 0) ? 'opacity-40' : ''
