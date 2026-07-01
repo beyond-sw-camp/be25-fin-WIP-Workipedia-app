@@ -4,7 +4,7 @@
     "slug": "WIP-Workipedia-app",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/workiIcon.png",
     "scheme": "wipworkipediaapp",
     "userInterfaceStyle": "automatic",
     "ios": {
@@ -14,7 +14,7 @@
       "package": "wiki.workipedia.app",
       "adaptiveIcon": {
         "backgroundColor": "#FFFFFF",
-        "foregroundImage": "./assets/images/android-icon-foreground.png"
+        "foregroundImage": "./assets/images/workiIcon.png"
       },
       "predictiveBackGestureEnabled": false
     },
