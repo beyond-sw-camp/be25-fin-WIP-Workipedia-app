@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -35,6 +35,7 @@ import {
   parseReferences,
   type SourceItem,
 } from '@/api/chatbotApi';
+import { getMyProfile } from '@/api/mypageApi';
 import { createQuestion } from '@/api/workiApi';
 import { createTicket, createTicketWithFiles } from '@/api/ticketApi';
 import { useKeyboardHeight, useKeyboardSpacing } from '@/lib/useKeyboardSpacing';
@@ -96,7 +97,15 @@ function mapReferences(refs: SourceItem[]): Source[] {
     WORKI: { label: '워키 답변', cls: 'blue' },
     CHAT: { label: '채팅 답변', cls: 'gray' },
   };
-  return refs.map((r) => {
+  // 같은 문서가 여러 청크로 내려오면 항목이 중복되므로, 문서 단위로 한 번만 표시한다.
+  const seen = new Set<string>();
+  const unique = refs.filter((r) => {
+    const key = `${r.source_type}:${r.source_id || r.title}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return unique.map((r) => {
     const cfg = config[r.source_type] ?? { label: r.source_type, cls: 'gray' as const };
     return { type: cfg.label, cls: cfg.cls, meta: r.title, link: '문서에서 보기', url: r.link ?? undefined };
   });
@@ -126,6 +135,15 @@ export default function KnowItScreen() {
   const [formImageUris, setFormImageUris] = useState<string[]>([]);
   const [formError, setFormError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  // 메인 진입 시 토큰 유효성 검증: 저장된 토큰이 만료/무효면 API가 401 → 인터셉터가
+  // refresh 시도 후 실패하면 자동으로 로그인 화면으로 보낸다. (knowit 은 진입 시 다른 API를
+  // 호출하지 않아, 이 검증이 없으면 죽은 토큰으로도 메인이 그대로 보인다.)
+  useEffect(() => {
+    getMyProfile().catch(() => {
+      // 401 처리는 응답 인터셉터(refresh → forceLogout)가 담당한다. 그 외 오류는 무시.
+    });
+  }, []);
 
   const scrollToEnd = () =>
     requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));

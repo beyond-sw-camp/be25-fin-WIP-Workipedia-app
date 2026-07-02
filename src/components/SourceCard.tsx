@@ -1,5 +1,4 @@
 import { Text, View } from 'react-native';
-import { ArrowRight } from 'lucide-react-native';
 
 export interface Source {
   type: string;
@@ -40,11 +39,6 @@ export function SourceCard({ source }: { source: Source }) {
       {source.body ? (
         <Text className="text-[15px] leading-6 text-stone-800">{source.body}</Text>
       ) : null}
-
-      <View className="mt-3 flex-row items-center gap-1.5">
-        <Text className="text-sm font-semibold text-[#2b7fff]">{source.link}</Text>
-        <ArrowRight size={15} color="#2b7fff" />
-      </View>
     </View>
   );
 }
