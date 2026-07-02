@@ -2,7 +2,7 @@ import { Text, View } from 'react-native';
 
 export interface Source {
   type: string;
-  cls: 'blue' | 'green' | 'gray';
+  cls: 'blue' | 'green' | 'gray' | 'orange' | 'purple';
   meta: string;
   date?: string;
   body?: string;
@@ -10,12 +10,26 @@ export interface Source {
   url?: string; // 내부 라우트 경로 (v1 에서는 매뉴얼 화면 비범위라 표시만)
 }
 
-const BORDER = { blue: '#cfe0ff', green: '#bfe9cf', gray: '#e5e7eb' } as const;
-const BG = { blue: '#f3f8ff', green: '#f2fcf6', gray: '#fafafa' } as const;
+const BORDER = {
+  blue: '#cfe0ff',
+  green: '#bfe9cf',
+  gray: '#e5e7eb',
+  orange: '#fed7aa',
+  purple: '#ddd6fe',
+} as const;
+const BG = {
+  blue: '#f3f8ff',
+  green: '#f2fcf6',
+  gray: '#fafafa',
+  orange: '#fff7ed',
+  purple: '#f5f3ff',
+} as const;
 const BADGE = {
   blue: { backgroundColor: '#2b7fff', color: '#fff' },
   green: { backgroundColor: '#00a63e', color: '#fff' },
   gray: { backgroundColor: '#eef0f3', color: '#4b5563' },
+  orange: { backgroundColor: '#ea580c', color: '#fff' },
+  purple: { backgroundColor: '#8b5cf6', color: '#fff' },
 } as const;
 
 export function SourceCard({ source }: { source: Source }) {
